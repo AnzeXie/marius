@@ -17,7 +17,8 @@
 class Evaluator {
   public:
     shared_ptr<DataLoader> dataloader_;
-
+    BatchTimingReporter *batch_timing_reporter_;
+    
     virtual ~Evaluator() { };
     
     /**

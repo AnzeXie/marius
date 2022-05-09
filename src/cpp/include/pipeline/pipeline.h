@@ -95,6 +95,8 @@ class Pipeline {
 
     std::atomic<int> assign_id_;
 
+    BatchTimingReporter *batch_timing_reporter_;
+
     bool encode_only_;
     bool train_;
 

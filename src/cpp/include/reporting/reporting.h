@@ -6,6 +6,13 @@
 #define MARIUS_SRC_CPP_INCLUDE_REPORTING_H_
 
 #include "common/datatypes.h"
+#include "common/pybind_headers.h"
+#include "data/batch.h"
+#include "pipeline/pipeline_constants.h"
+#include "sys/types.h"
+#include "sys/sysinfo.h"
+
+using pyobj = pybind11::object;
 
 class Metric {
   public:
@@ -78,7 +85,12 @@ class Reporter {
         metrics_.emplace_back(metric);
     }
 
+    // void reportToFile(std::string output_filename) {
+
+    // }
+
     virtual void report() = 0;
+
 };
 
 class LinkPredictionReporter : public Reporter {
@@ -102,6 +114,8 @@ class LinkPredictionReporter : public Reporter {
 
     void report() override;
 
+    // void reportToFile(std::string output_filename);
+
     void save(string directory, bool scores, bool ranks);
 };
 
@@ -116,7 +130,6 @@ public:
     torch::Tensor all_y_true_;
     torch::Tensor all_y_pred_;
     torch::Tensor all_nodes_;
-
 
     NodeClassificationReporter();
 
@@ -150,6 +163,65 @@ class ProgressReporter : public Reporter {
     void report() override;
 
 
+};
+
+class BatchTimingReporter : public Reporter {
+    std::vector<BatchTiming> times_;
+    pyobj tensorboard_converter_module_;
+  public:
+    pyobj summary_writer_;
+    std::string output_filename_;
+
+    BatchTimingReporter();
+
+    ~BatchTimingReporter() {clear();}
+
+    void clear() {times_ = {};}
+
+    void setupSummaryWriter(std::string log_directory);
+
+    void addResult(BatchTiming batch_timing);
+
+    void report() override;
+};
+
+class MemorySampler {
+protected:
+    std::atomic<bool> done_;
+    struct timespec sampling_interval_;
+    std::thread thread_;
+    std::vector<std::vector<float>> cpu_mem_samples_;
+    std::vector<float> sub_cpu_mem_samples_;
+    std::vector<std::vector<float>> gpu_mem_samples_;
+    std::vector<float> sub_gpu_mem_samples_;
+public:
+    explicit MemorySampler();
+
+    void run();
+
+    void spawn() {
+        thread_ = std::thread(&MemorySampler::run, this);
+    }
+
+    void start() {
+        spawn();
+        done_ = false;
+        sub_cpu_mem_samples_ = {};
+        sub_gpu_mem_samples_ = {};
+    }
+
+    void stop(std::string output_filename) {
+        done_ = true;
+        cpu_mem_samples_.emplace_back(sub_cpu_mem_samples_);
+        if (thread_.joinable()){
+            thread_.join();
+        }
+        report(output_filename);
+    }
+
+    void clear() {};
+
+    void report(std::string output_filename);
 };
 
 #endif //MARIUS_SRC_CPP_INCLUDE_REPORTING_H_

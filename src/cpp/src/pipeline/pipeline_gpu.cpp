@@ -21,10 +21,21 @@ void BatchToDeviceWorker::run() {
             if (!popped) {
                 break;
             }
+
+            batch->batch_timing_.host_queue_timer->stop();
+            batch->batch_timing_.batch_host_queue = batch->batch_timing_.host_queue_timer->getDuration();
+
+            Timer gpu_timer = Timer(true);
+            gpu_timer.start();
+
             int queue_choice = pipeline_->assign_id_++ % ((PipelineGPU *) pipeline_)->device_loaded_batches_.size();
 
             batch->to(pipeline_->model_->device_models_[queue_choice]->device_);
 
+            gpu_timer.stop();
+            batch->batch_timing_.h2d_transfer = gpu_timer.getDuration();
+
+            batch->batch_timing_.device_queue_timer->start();
             ((PipelineGPU *) pipeline_)->device_loaded_batches_[queue_choice]->blocking_push(batch);
         }
         nanosleep(&sleep_time_, NULL);
@@ -41,7 +52,16 @@ void ComputeWorkerGPU::run() {
                 break;
             }
 
+            batch->batch_timing_.device_queue_timer->stop();
+            batch->batch_timing_.batch_device_queue = batch->batch_timing_.device_queue_timer->getDuration();
+
+            Timer gpu_timer = Timer(true);
+            gpu_timer.start();
+            
             pipeline_->dataloader_->loadGPUParameters(batch);
+
+            gpu_timer.stop();
+            batch->batch_timing_.compute.load_node_data = gpu_timer.getDuration();
 
             if (pipeline_->isTrain()) {
                 bool will_sync = false;
@@ -84,6 +104,8 @@ void ComputeWorkerGPU::run() {
                     pipeline_->edges_processed_ += batch->batch_size_;
                 } else {
                     pipeline_->dataloader_->updateEmbeddings(batch, true);
+
+                    batch->batch_timing_.device_queue_timer->start();
                     ((PipelineGPU *) pipeline_)->device_update_batches_[gpu_id_]->blocking_push(batch);
                 }
             } else {
@@ -133,8 +155,15 @@ void BatchToHostWorker::run() {
                 break;
             }
 
-            batch->embeddingsToHost();
+            batch->batch_timing_.device_queue_timer->stop();
+            batch->batch_timing_.gradient_device_queue = batch->batch_timing_.device_queue_timer->getDuration();
 
+            batch->batch_timing_.device_queue_timer->start();
+            batch->embeddingsToHost();
+            batch->batch_timing_.device_queue_timer->stop();
+            batch->batch_timing_.d2h_transfer = batch->batch_timing_.device_queue_timer->getDuration();
+
+            batch->batch_timing_.host_queue_timer->start();
             ((PipelineGPU *) pipeline_)->update_batches_->blocking_push(batch);
         }
         nanosleep(&sleep_time_, NULL);
@@ -146,6 +175,7 @@ PipelineGPU::PipelineGPU(shared_ptr<DataLoader> dataloader,
                          bool train,
                          shared_ptr<ProgressReporter> reporter,
                          shared_ptr<PipelineConfig> pipeline_config,
+                         BatchTimingReporter *batch_timer_reporter,
                          bool encode_only) {
     dataloader_ = dataloader;
     model_ = model;
@@ -158,6 +188,7 @@ PipelineGPU::PipelineGPU(shared_ptr<DataLoader> dataloader,
     gpu_sync_interval_ = pipeline_options_->gpu_sync_interval;
     assign_id_ = 0;
     encode_only_ = encode_only;
+    batch_timing_reporter_ = batch_timer_reporter;
 
     if (train_) {
         loaded_batches_ = std::make_shared<Queue<shared_ptr<Batch>>>(pipeline_options_->batch_host_queue_size);

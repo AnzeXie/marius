@@ -264,7 +264,7 @@ torch::Tensor Model::forward_nc(at::optional<torch::Tensor> node_embeddings,
 }
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> Model::forward_lp(shared_ptr<Batch> batch, bool train) {
-
+    
     torch::Tensor encoded_nodes = encoder_->forward(batch->node_embeddings_, batch->node_features_, batch->dense_graph_, train);
 
     // call proper decoder
@@ -336,6 +336,8 @@ void Model::train_batch(shared_ptr<Batch> batch, bool call_step) {
     }
 
     loss.backward();
+
+    batch->batch_timing_.compute.loss = loss.item<int64_t>();
 
     if (call_step) {
         step();

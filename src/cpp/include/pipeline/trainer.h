@@ -15,6 +15,8 @@ class Trainer {
   public:
     shared_ptr<DataLoader> dataloader_;
     shared_ptr<ProgressReporter> progress_reporter_;
+    BatchTimingReporter *batch_timing_reporter_;
+    MemorySampler *mem_sampler_;
     LearningTask learning_task_;
 
     virtual ~Trainer() { };

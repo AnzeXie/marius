@@ -10,24 +10,29 @@
 PipelineEvaluator::PipelineEvaluator(shared_ptr<DataLoader> dataloader, shared_ptr<Model> model, shared_ptr<PipelineConfig> pipeline_config) {
     dataloader_ = dataloader;
 
+    batch_timing_reporter_ = new BatchTimingReporter();
+
     if (model->device_.is_cuda()) {
-        pipeline_ = std::make_shared<PipelineGPU>(dataloader, model, false, nullptr, pipeline_config);
+        pipeline_ = std::make_shared<PipelineGPU>(dataloader, model, false, nullptr, pipeline_config, batch_timing_reporter_);
     } else {
-        pipeline_ = std::make_shared<PipelineCPU>(dataloader, model, false, nullptr, pipeline_config);
+        pipeline_ = std::make_shared<PipelineCPU>(dataloader, model, false, nullptr, pipeline_config, batch_timing_reporter_);
     }
 
     pipeline_->initialize();
 }
 
 void PipelineEvaluator::evaluate(bool validation) {
-
+    string log_directory = dataloader_->graph_storage_->base_directory_;
+    string output_filename = log_directory + "";
     if (!dataloader_->single_dataset_) {
         if (validation) {
             SPDLOG_INFO("Evaluating validation set");
             dataloader_->setValidationSet();
+            output_filename = output_filename + "validation_eval.csv";
         } else {
             SPDLOG_INFO("Evaluating test set");
             dataloader_->setTestSet();
+            output_filename = output_filename + "test_eval.csv";
         }
     }
 
@@ -46,7 +51,8 @@ void PipelineEvaluator::evaluate(bool validation) {
     pipeline_->pauseAndFlush();
     pipeline_->model_->reporter_->report();
     timer.stop();
-
+    
+    // pipeline_->model_->reporter_->reportToFile(output_filename);
     int64_t epoch_time = timer.getDuration();
     SPDLOG_INFO("Evaluation complete: {}ms", epoch_time);
 }

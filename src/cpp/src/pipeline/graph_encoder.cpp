@@ -11,6 +11,7 @@ using std::get;
 
 PipelineGraphEncoder::PipelineGraphEncoder(shared_ptr<DataLoader> dataloader, shared_ptr<Model>model, shared_ptr<PipelineConfig> pipeline_config, int logs_per_epoch) {
     dataloader_ = dataloader;
+    batch_timing_reporter_ = new BatchTimingReporter();
 
     std::string item_name = "Nodes";
     int64_t num_items = dataloader_->graph_storage_->getNumNodes();
@@ -18,9 +19,9 @@ PipelineGraphEncoder::PipelineGraphEncoder(shared_ptr<DataLoader> dataloader, sh
     progress_reporter_ = std::make_shared<ProgressReporter>(item_name, num_items, logs_per_epoch);
 
     if (model->device_.is_cuda()) {
-        pipeline_ = std::make_shared<PipelineGPU>(dataloader, model, true, progress_reporter_, pipeline_config, true);
+        pipeline_ = std::make_shared<PipelineGPU>(dataloader, model, true, progress_reporter_, pipeline_config, batch_timing_reporter_, true);
     } else {
-        pipeline_ = std::make_shared<PipelineCPU>(dataloader, model, true, progress_reporter_, pipeline_config, true);
+        pipeline_ = std::make_shared<PipelineCPU>(dataloader, model, true, progress_reporter_, pipeline_config, batch_timing_reporter_, true);
     }
 }
 

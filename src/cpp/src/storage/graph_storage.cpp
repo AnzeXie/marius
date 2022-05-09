@@ -14,6 +14,7 @@
 
 GraphModelStorage::GraphModelStorage(GraphModelStoragePtrs storage_ptrs,
                                      shared_ptr<StorageConfig> storage_config) {
+    base_directory_ = storage_config->dataset->base_directory;
     storage_ptrs_ = storage_ptrs;
     train_ = true;
     full_graph_evaluation_ = storage_config->full_graph_evaluation;

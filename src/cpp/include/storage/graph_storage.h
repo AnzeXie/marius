@@ -56,6 +56,7 @@ class GraphModelStorage {
 
   public:
     // In memory subgraph for partition buffer
+    string base_directory_;
 
     EdgeList active_edges_;
     Indices active_nodes_;

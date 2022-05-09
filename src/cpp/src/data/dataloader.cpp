@@ -410,13 +410,20 @@ shared_ptr<Batch> DataLoader::getBatch(at::optional<torch::Device> device, bool 
 
 void DataLoader::edgeSample(shared_ptr<Batch> batch) {
 
+    Timer timer = Timer(0);
+    timer.start();
     if (!batch->edges_.defined()) {
         batch->edges_ = edge_sampler_->getEdges(batch);
     }
+    timer.stop();
+    batch->batch_timing_.loading.sample_edges = timer.getDuration();
 
+    timer.start();
     if (negative_sampler_ != nullptr) {
         negativeSample(batch);
     }
+    timer.stop();
+    batch->batch_timing_.loading.sample_edges = timer.getDuration();
 
     std::vector<torch::Tensor> all_ids = {batch->edges_.select(1, 0), batch->edges_.select(1, -1)};
 
@@ -438,18 +445,27 @@ void DataLoader::edgeSample(shared_ptr<Batch> batch) {
     if (neighbor_sampler_ != nullptr) {
 
         // get unique nodes in edges and negatives
+        timer.start();
         batch->root_node_indices_ = std::get<0>(torch::_unique(torch::cat(all_ids)));
+        timer.stop();
+        batch->batch_timing_.loading.set_uniques_edges = timer.getDuration();
 
         // sample neighbors and get unique nodes
+        timer.start();
         batch->dense_graph_ = neighbor_sampler_->getNeighbors(batch->root_node_indices_, graph_storage_->current_subgraph_state_->in_memory_subgraph_);
         batch->unique_node_indices_ = batch->dense_graph_.getNodeIDs();
+        timer.stop();
+        batch->batch_timing_.loading.sample_neighbors = timer.getDuration();
 
         // map edges and negatives to their corresponding index in unique_node_indices_
+        timer.start();
         auto tup = torch::sort(batch->unique_node_indices_);
         torch::Tensor sorted_map = std::get<0>(tup);
         torch::Tensor map_to_unsorted = std::get<1>(tup);
 
         mapped_tensors = apply_tensor_map(sorted_map, all_ids);
+        timer.stop();
+        batch->batch_timing_.loading.set_uniques_neighbors = timer.getDuration();
 
         int64_t num_nbrs_sampled = batch->dense_graph_.hop_offsets_[-2].item<int64_t>();
 
@@ -464,7 +480,7 @@ void DataLoader::edgeSample(shared_ptr<Batch> batch) {
             dst_neg_mapping = map_to_unsorted.index_select(0, mapped_tensors[3]).reshape(batch->dst_neg_indices_.sizes()) - num_nbrs_sampled;
         }
     } else {
-
+        timer.start();
         // map edges and negatives to their corresponding index in unique_node_indices_
         auto tup = map_tensors(all_ids);
         batch->unique_node_indices_ = std::get<0>(tup);
@@ -480,6 +496,8 @@ void DataLoader::edgeSample(shared_ptr<Batch> batch) {
         if (batch->dst_neg_indices_.defined()) {
             dst_neg_mapping = mapped_tensors[3].reshape(batch->dst_neg_indices_.sizes());
         }
+        timer.stop();
+        batch->batch_timing_.loading.set_uniques_edges = timer.getDuration();
     }
 
     if (batch->edges_.size(1) == 2) {

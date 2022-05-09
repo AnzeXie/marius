@@ -3,10 +3,11 @@
 //
 
 #include "reporting/reporting.h"
+#include <common/pybind_headers.h>
+#include <stdlib.h>
 
 #include "configuration/constants.h"
 #include "reporting/logger.h"
-
 
 HitskMetric::HitskMetric(int k) {
     k_ = k;
@@ -105,6 +106,53 @@ void LinkPredictionReporter::report() {
 
     SPDLOG_INFO(report_string);
 }
+
+// void LinkPredictionReporter::reportToFile(std::string output_filename) {
+//     all_ranks_ = torch::cat(per_batch_ranks_).to(torch::kCPU);
+//     if (per_batch_scores_.size() > 0) {
+//         all_scores_ = torch::cat(per_batch_scores_);
+//     }
+//     per_batch_ranks_ = {};
+//     per_batch_scores_ = {};
+
+//     bool append = false;
+//     if (access(output_filename.c_str(), F_OK) != -1){
+//         append = true;
+//     }
+    
+//     std::ofstream output_file;
+
+//     if (!append) {
+//         SPDLOG_INFO("not append");
+//         output_file.open(output_filename);
+
+//         for (int i = 0; i < metrics_.size(); i++){
+//             shared_ptr<Metric> m = metrics_[i];
+//             output_file << m->name_;
+//             if (i == metrics_.size() - 1) {
+//                 output_file << '\n';
+//             }
+//             else {
+//                 output_file << ',';
+//             }
+//         }
+//     } 
+//     else {
+//         SPDLOG_INFO("append");
+//         output_file.open(output_filename, std::ios_base::app);
+//     }
+//     for (int i = 0; i < metrics_.size(); i++) {
+//         shared_ptr<Metric> m = metrics_[i];
+//         torch::Tensor result = std::dynamic_pointer_cast<RankingMetric>(m)->computeMetric(all_ranks_);
+//         output_file << std::to_string(result.item<double>());
+//         if (i == metrics_.size() - 1) {
+//             output_file << '\n';
+//         }
+//         else {
+//             output_file << ',';
+//         }
+//     }
+// }
 
 void LinkPredictionReporter::save(string directory, bool scores, bool ranks) {
     all_ranks_ = torch::cat(per_batch_ranks_).to(torch::kCPU);
@@ -335,4 +383,132 @@ void ProgressReporter::addResult(int64_t items_processed) {
 void ProgressReporter::report() {
     std::string report_string = item_name_ + " processed: [" + std::to_string(current_item_) + "/" + std::to_string(total_items_) + "], " + fmt::format("{:.2f}", 100 * (double) current_item_ / total_items_) + "%";
     SPDLOG_INFO(report_string);
+}
+
+BatchTimingReporter::BatchTimingReporter() {
+    times_ = {};
+    string module_name = "marius.tools.report.tensorboard_converter";
+    // string module_name = "torch.utils.tensorboard";
+
+    if (Py_IsInitialized() != 0) {
+        SPDLOG_INFO("is initialized");
+        tensorboard_converter_module_ = pybind11::module::import(module_name.c_str());
+        summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./");
+    } else {
+        SPDLOG_INFO("is not initialized");
+        setenv("MARIUS_NO_BINDINGS", "1", true);
+
+        pybind11::scoped_interpreter guard{};
+
+        tensorboard_converter_module_ = pybind11::module::import(module_name.c_str());
+        summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./"); // causes seg fault if called in setupSummaryWriter
+        pybind11::gil_scoped_release no_gil{};
+        SPDLOG_INFO("is not initialized end");
+    }
+}
+
+void BatchTimingReporter::setupSummaryWriter(std::string log_directory) {
+    // tensorboard_converter_module_.attr("main")();
+    // // SPDLOG_INFO("{}", summary_writer_);
+    // //summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")(log_directory);
+    // summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./");
+}
+
+void BatchTimingReporter::addResult(BatchTiming batch_timing) {
+    lock();
+    times_.emplace_back(batch_timing);
+    
+    if (times_.size() > 0) {
+        BatchTiming last_batch_timing = times_.back();
+        tensorboard_converter_module_.attr("batch_timing_appender")
+            ("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id, summary_writer_);
+        tensorboard_converter_module_.attr("batch_timing_appender")
+            ("batch_host_queue", batch_timing.batch_host_queue, batch_timing.batch_id, summary_writer_);
+        tensorboard_converter_module_.attr("batch_timing_appender")
+            ("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id, summary_writer_);
+        
+    }
+    unlock();
+}
+
+void BatchTimingReporter::report() {
+    std::ofstream output_file;
+    output_file.open(output_filename_);
+
+    // write column headers
+
+    output_file << "id,wait_for_batch,sample_edges,sample_negatives,sample_neighbors,set_uniques_edges,set_uniques_neighbors,";
+    output_file << "set_eval_filter,load_node_data_cpu,batch_host_queue,h2d_transfer,batch_device_queue,load_node_data_gpu,";
+    output_file << "perform_map,forward_encoder,prepare_batch,forward_decoder,loss,backward,step,accumulate_gradients,";
+    output_file << "gradient_device_queue,d2h_transfer,gradient_host_queue,update_embeddings,end_to_end\n";
+    for (auto batch_timing : times_) {
+        output_file << batch_timing.batch_id << ',';
+        output_file << batch_timing.loading.wait_for_batch << ',';
+        output_file << batch_timing.loading.sample_edges << ',';
+        output_file << batch_timing.loading.sample_negatives << ',';
+        output_file << batch_timing.loading.sample_neighbors << ',';
+        output_file << batch_timing.loading.set_uniques_edges << ',';
+        output_file << batch_timing.loading.set_uniques_neighbors << ',';
+        output_file << batch_timing.loading.set_eval_filter << ',';
+        output_file << batch_timing.loading.load_node_data << ',';
+        output_file << batch_timing.batch_host_queue << ',';
+        output_file << batch_timing.h2d_transfer << ',';
+        output_file << batch_timing.batch_device_queue << ',';
+        output_file << batch_timing.compute.load_node_data << ',';
+        output_file << batch_timing.compute.perform_map << ',';
+        output_file << batch_timing.compute.forward_encoder << ',';
+        output_file << batch_timing.compute.prepare_batch << ',';
+        output_file << batch_timing.compute.forward_decoder << ',';
+        output_file << batch_timing.compute.loss << ',';
+        output_file << batch_timing.compute.backward << ',';
+        output_file << batch_timing.compute.step << ',';
+        output_file << batch_timing.compute.accumulate_gradients << ',';
+        output_file << batch_timing.gradient_device_queue << ',';
+        output_file << batch_timing.d2h_transfer << ',';
+        output_file << batch_timing.gradient_host_queue << ',';
+        output_file << batch_timing.update_embeddings << ',';
+        output_file << batch_timing.end_to_end << '\n';
+    }
+
+    output_file.close();
+}
+
+MemorySampler::MemorySampler() {
+    sampling_interval_.tv_sec = 1;
+    sampling_interval_.tv_nsec = 0;
+    done_ = false;
+    cpu_mem_samples_ = {};
+    gpu_mem_samples_ = {};
+    sub_cpu_mem_samples_ = {};
+    sub_gpu_mem_samples_ = {};
+}
+
+void MemorySampler::run() {
+    while(!done_) {
+        struct sysinfo cpu_mem_info;
+        sysinfo (&cpu_mem_info);
+        float cpu_mem_used = (cpu_mem_info.totalram - cpu_mem_info.freeram) / 1024.0 / 1024.0 / 1024.0;
+        float cpu_mem_usage = cpu_mem_used / (cpu_mem_info.totalram / 1024.0 / 1024.0 / 1024.0);
+        sub_cpu_mem_samples_.emplace_back(cpu_mem_usage);
+
+        size_t gpu_free_mem = 0;
+        size_t gpu_total_mem = 0;
+        cudaMemGetInfo(&gpu_free_mem, &gpu_total_mem);
+        float gpu_mem_usage = 1 - (gpu_free_mem * 1.0 / gpu_total_mem);
+        sub_gpu_mem_samples_.emplace_back(gpu_mem_usage);
+
+        nanosleep(&sampling_interval_, NULL);
+    }
+}
+
+void MemorySampler::report(std::string output_filename) {
+    std::ofstream output_file;
+    output_file.open(output_filename);
+
+    output_file << "cpu_mem_usage, gpu_mem_usage" << '\n';
+    for (int i = 0; i < sub_cpu_mem_samples_.size(); i++) {
+        output_file << sub_cpu_mem_samples_[i] << ',' << sub_gpu_mem_samples_[i] << '\n';
+    }
+
+    output_file.close();
 }

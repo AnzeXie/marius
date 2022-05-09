@@ -60,6 +60,7 @@ public:
                 bool train,
                 shared_ptr<ProgressReporter> reporter,
                 shared_ptr<PipelineConfig> pipeline_config,
+                BatchTimingReporter *batch_timer_reporter,
                 bool encode_only = false);
 
     ~PipelineGPU();

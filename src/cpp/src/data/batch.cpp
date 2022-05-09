@@ -13,6 +13,11 @@ Batch::Batch(bool train) : device_transfer_(0), host_transfer_(0), timer_(false)
     status_ = BatchStatus::Waiting;
     train_ = train;
     device_id_ = -1;
+
+    batch_timing_.end_to_end_timer = new Timer(false);
+    batch_timing_.host_queue_timer = new Timer(false);
+    batch_timing_.device_queue_timer = new Timer(false);
+
     clear();
 }
 

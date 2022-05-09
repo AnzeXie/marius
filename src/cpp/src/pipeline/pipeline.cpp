@@ -19,6 +19,8 @@ Worker::Worker(Pipeline *pipeline) {
 void LoadBatchWorker::run() {
     while (!done_) {
         while (!paused_) {
+            
+
             // Check that 1) the total number of batches in the pipeline does not exceed the capacity
             // And 2) that the epoch has a batch left to process
             std::unique_lock lock(*pipeline_->max_batches_lock_);
@@ -29,12 +31,13 @@ void LoadBatchWorker::run() {
 
                 shared_ptr<Batch> batch = pipeline_->dataloader_->getBatch();
                 lock.unlock(); // TODO make sure having the unlock after getBatch doesn't introduce deadlock
-
+                batch->batch_timing_.end_to_end_timer->start();
                 if (batch == nullptr) {
                     break;
                 }
 
                 if (pipeline_->model_->device_.is_cuda()) {
+                    batch->batch_timing_.host_queue_timer->start();
                     ((PipelineGPU *) pipeline_)->loaded_batches_->blocking_push(batch);
                 } else {
                     ((PipelineCPU *) pipeline_)->loaded_batches_->blocking_push(batch);
@@ -60,11 +63,18 @@ void UpdateBatchWorker::run() {
                 break;
             }
 
+            batch->batch_timing_.host_queue_timer->stop();
+            batch->batch_timing_.gradient_host_queue = batch->batch_timing_.host_queue_timer->getDuration();
+
             // transfer gradients and update parameters
             if (batch->node_embeddings_.defined()) {
                 pipeline_->dataloader_->updateEmbeddings(batch, false);
             }
 
+            batch->batch_timing_.batch_id = batch->batch_id_;
+            batch->batch_timing_.end_to_end_timer->stop();
+            batch->batch_timing_.end_to_end = batch->batch_timing_.end_to_end_timer->getDuration();
+            pipeline_->batch_timing_reporter_->addResult(batch->batch_timing_);
             pipeline_->reporter_->addResult(batch->batch_size_);
             pipeline_->batches_in_flight_--;
             pipeline_->dataloader_->finishedBatch();
@@ -72,6 +82,7 @@ void UpdateBatchWorker::run() {
             pipeline_->edges_processed_ += batch->batch_size_;
 
             SPDLOG_TRACE("Completed: {}", batch->batch_id_);
+            
         }
         nanosleep(&sleep_time_, NULL);
     }
@@ -97,7 +108,13 @@ void WriteNodesWorker::run() {
                 break;
             }
 
+            Timer cpu_timer = Timer(false);
+            cpu_timer.start();
             pipeline_->dataloader_->graph_storage_->updatePutEncodedNodesRange(batch->start_idx_, batch->batch_size_, batch->encoded_uniques_);
+            cpu_timer.stop();
+            batch->batch_timing_.update_embeddings = cpu_timer.getDuration();
+            batch->batch_timing_.batch_id = batch->batch_id_;
+            pipeline_->batch_timing_reporter_->addResult(batch->batch_timing_);
             pipeline_->reporter_->addResult(batch->batch_size_);
             pipeline_->batches_in_flight_--;
             pipeline_->dataloader_->finishedBatch();

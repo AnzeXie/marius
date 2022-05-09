@@ -71,6 +71,7 @@ PipelineCPU::PipelineCPU(shared_ptr<DataLoader> dataloader,
                          bool train,
                          shared_ptr<ProgressReporter> reporter,
                          shared_ptr<PipelineConfig> pipeline_config,
+                         BatchTimingReporter *batch_timer_reporter,
                          bool encode_only) {
 
     dataloader_ = dataloader;
@@ -81,6 +82,7 @@ PipelineCPU::PipelineCPU(shared_ptr<DataLoader> dataloader,
     pipeline_options_ = pipeline_config;
     assign_id_ = 0;
     encode_only_ = encode_only;
+    batch_timing_reporter_ = batch_timer_reporter;
 
     if (train_) {
         loaded_batches_ = std::make_shared<Queue<shared_ptr<Batch>>>(pipeline_options_->batch_host_queue_size);

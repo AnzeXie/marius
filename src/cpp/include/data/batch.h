@@ -28,6 +28,53 @@ enum class BatchStatus {
     Done
 };
 
+struct BatchLoading {
+    int64_t wait_for_batch = 0;
+    int64_t sample_edges = 0;
+    int64_t sample_negatives = 0;
+    int64_t sample_neighbors = 0;
+    int64_t set_uniques_edges = 0;
+    int64_t set_uniques_neighbors = 0;
+    int64_t set_eval_filter = 0;
+    int64_t load_node_data = 0;
+};
+
+struct BatchCompute {
+    int64_t load_node_data = 0; // Added remove comments later
+    int64_t perform_map = 0;
+    int64_t forward_encoder = 0;
+    int64_t prepare_batch = 0;
+    int64_t forward_decoder = 0;
+    int64_t loss = 0; // Added remove comments later
+    int64_t backward = 0;
+    int64_t step = 0;
+    int64_t accumulate_gradients = 0;
+};
+
+struct BatchTiming {
+    Timer *end_to_end_timer = nullptr;
+    Timer *host_queue_timer = nullptr;
+    Timer *device_queue_timer = nullptr;
+
+    int64_t batch_id = 0;
+
+    BatchLoading loading;
+
+    int64_t batch_host_queue = 0; // Added remove comments later
+    int64_t h2d_transfer = 0;  // Added remove comments later
+
+    int64_t batch_device_queue = 0; // Added remove comments later
+    BatchCompute compute;
+
+    int64_t gradient_device_queue = 0; // Added remove comments later
+    int64_t d2h_transfer = 0; // Added remove comments later
+
+    int64_t gradient_host_queue = 0; // Added remove comments later
+    int64_t update_embeddings = 0;
+
+    int64_t end_to_end = 0;
+};
+
 /**
  * Contains metadata, edges and embeddings for a single batch.
  */
@@ -76,6 +123,8 @@ class Batch {
 
     torch::Tensor src_neg_filter_;                          /**< Used to filter out false negatives for source corrupted negatives */
     torch::Tensor dst_neg_filter_;                          /**< Used to filter out false negatives for destination corrupted negatives */
+
+    BatchTiming batch_timing_;
 
     Batch(bool train);                                      /**< Constructor */
 

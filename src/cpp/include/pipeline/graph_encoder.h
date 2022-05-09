@@ -13,6 +13,7 @@ class GraphEncoder {
 public:
     shared_ptr<DataLoader> dataloader_;
     shared_ptr<ProgressReporter> progress_reporter_;
+    BatchTimingReporter *batch_timing_reporter_;
 
     virtual ~GraphEncoder() { };
     /**
