@@ -392,21 +392,15 @@ BatchTimingReporter::BatchTimingReporter() {
 
     if (Py_IsInitialized() != 0) {
         SPDLOG_INFO("is initialized");
-        // tensorboard_converter_module_ = pybind11::module::import(module_name.c_str());
-        // summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./");
         tensorboard_converter_module_ = pybind11::module::import("torch.utils.tensorboard").attr("SummaryWriter");
-        summary_writer_ = tensorboard_converter_module_();
+        
     } else {
         SPDLOG_INFO("is not initialized");
         setenv("MARIUS_NO_BINDINGS", "1", true);
 
         pybind11::scoped_interpreter guard{};
-
-        // tensorboard_converter_module_ = pybind11::module::import(module_name.c_str());
-        // summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./"); // causes seg fault if called in setupSummaryWriter
         tensorboard_converter_module_ = pybind11::module::import("marius.tools.report.tensorboard_logger").attr("tensorboard_logger");
-        summary_writer_ = tensorboard_converter_module_("./");
-        summary_writer_.attr("add_scalar")("wait_for_batch", 4, 1);
+
         pybind11::gil_scoped_release no_gil{};
         SPDLOG_INFO("is not initialized end");
     }
@@ -417,6 +411,19 @@ void BatchTimingReporter::setupSummaryWriter(std::string log_directory) {
     // // SPDLOG_INFO("{}", summary_writer_);
     // //summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")(log_directory);
     // summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./");
+    if (Py_IsInitialized() != 0) {
+        SPDLOG_INFO("in setupsummarywriter is initialized");
+        summary_writer_ = tensorboard_converter_module_("./");
+    } else {
+        SPDLOG_INFO("in setupsummarywriter");
+        setenv("MARIUS_NO_BINDINGS", "1", true);
+        pybind11::scoped_interpreter guard{};
+        summary_writer_ = tensorboard_converter_module_("./");
+
+        pybind11::gil_scoped_release no_gil{};
+        SPDLOG_INFO("in setupsummarywriter end");
+    }
+
 }
 
 void BatchTimingReporter::addResult(BatchTiming batch_timing) {
@@ -433,8 +440,22 @@ void BatchTimingReporter::addResult(BatchTiming batch_timing) {
         //     ("batch_host_queue", batch_timing.batch_host_queue, batch_timing.batch_id, summary_writer_);
         // tensorboard_converter_module_.attr("batch_timing_appender")
         //     ("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id, summary_writer_);
+        
+        if (Py_IsInitialized() != 0) {
+            SPDLOG_INFO("in addresult is initialized");
+            summary_writer_.attr("add_scalar")("wait_for_batch", 3, batch_timing.batch_id);
+        } else {
+            SPDLOG_INFO("in addresult");
+            setenv("MARIUS_NO_BINDINGS", "1", true);
+            pybind11::scoped_interpreter guard{};
+            summary_writer_.attr("add_scalar")("wait_for_batch", 3, batch_timing.batch_id);
 
-        // summary_writer_.attr("add_scalar")("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id);
+            pybind11::gil_scoped_release no_gil{};
+            SPDLOG_INFO("in addresult end");
+        }
+
+
+        //summary_writer_.attr("add_scalar")("wait_for_batch", 3, batch_timing.batch_id);
     }
 }
 
