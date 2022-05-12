@@ -406,12 +406,7 @@ void BatchTimingReporter::setupSummaryWriter(std::string log_directory) {
     if (Py_IsInitialized() != 0) {
         summary_writer_ = tensorboard_converter_module_("./");
     } else {
-        setenv("MARIUS_NO_BINDINGS", "1", true);
-        py::initialize_interpreter();
-
-        summary_writer_ = tensorboard_converter_module_("./");
-
-        pybind11::gil_scoped_release no_gil{};
+        throw MariusRuntimeException("Python interpreter not initialized");
     }
 
 }
@@ -420,25 +415,33 @@ void BatchTimingReporter::addResult(BatchTiming batch_timing) {
     Timer timer = Timer(false);
     timer.start();
 
+    Timer before_lock = Timer(false);
+    before_lock.start();
+
+
     lock();
+
+    before_lock.stop();
+    SPDLOG_INFO("before lock:{}", before_lock.getDuration());
+    Timer timer_0 = Timer(false);
+    timer_0.start();
+
     times_.emplace_back(batch_timing);
     
-    if (times_.size() > 0) {
-        BatchTiming last_batch_timing = times_.back();
-
-        if (Py_IsInitialized() != 0) {
-            appendBatchTimingResult(last_batch_timing);
-        } else {
-            setenv("MARIUS_NO_BINDINGS", "1", true);
-            py::initialize_interpreter();
-
-            appendBatchTimingResult(batch_timing);
-
-            pybind11::gil_scoped_release no_gil{};
-        }
-    }
+    timer_0.stop();
+    SPDLOG_INFO("within lock:{}", timer_0.getDuration());
     
+    if (Py_IsInitialized() != 0) {
+        appendBatchTimingResult(batch_timing);
+    } else {
+        throw MariusRuntimeException("Python interpreter not initialized");
+    }
+
     unlock();
+    
+    
+    
+
     timer.stop();
     SPDLOG_INFO("full timer:{}", timer.getDuration()); // REMOVE
 }
@@ -475,7 +478,6 @@ void BatchTimingReporter::appendBatchTimingResult(BatchTiming batch_timing) {
 
     py::list batch_results_list = py::cast(batch_results);
     summary_writer_.attr("add_batch_timing_stats")(batch_results_list, batch_timing.batch_id);
-
 }
 
 void BatchTimingReporter::report() {
