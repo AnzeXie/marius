@@ -176,11 +176,13 @@ class BatchTimingReporter : public Reporter {
 
     ~BatchTimingReporter() {clear();}
 
-    void clear() {times_ = {};}
+    void clear() {times_ = {}; py::finalize_interpreter();}
 
     void setupSummaryWriter(std::string log_directory);
 
     void addResult(BatchTiming batch_timing);
+
+    void appendBatchTimingResult(BatchTiming batch_timing);
 
     void report() override;
 };

@@ -387,76 +387,92 @@ void ProgressReporter::report() {
 
 BatchTimingReporter::BatchTimingReporter() {
     times_ = {};
-    //string module_name = "marius.tools.report.tensorboard_converter";
-    string module_name = "torch.utils.tensorboard";
+    string module_name = "marius.tools.report.tensorboard_logger";
+    string object_name = "tensorboard_logger";
 
     if (Py_IsInitialized() != 0) {
-        SPDLOG_INFO("is initialized");
-        tensorboard_converter_module_ = pybind11::module::import("torch.utils.tensorboard").attr("SummaryWriter");
-        
+        tensorboard_converter_module_ = pybind11::module::import(module_name.c_str()).attr(object_name.c_str());
     } else {
-        SPDLOG_INFO("is not initialized");
         setenv("MARIUS_NO_BINDINGS", "1", true);
+        py::initialize_interpreter();
 
-        pybind11::scoped_interpreter guard{};
-        tensorboard_converter_module_ = pybind11::module::import("marius.tools.report.tensorboard_logger").attr("tensorboard_logger");
+        tensorboard_converter_module_ = pybind11::module::import(module_name.c_str()).attr(object_name.c_str());
 
         pybind11::gil_scoped_release no_gil{};
-        SPDLOG_INFO("is not initialized end");
     }
 }
 
 void BatchTimingReporter::setupSummaryWriter(std::string log_directory) {
-    // tensorboard_converter_module_.attr("main")();
-    // // SPDLOG_INFO("{}", summary_writer_);
-    // //summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")(log_directory);
-    // summary_writer_ = tensorboard_converter_module_.attr("set_summarywriter")("./");
     if (Py_IsInitialized() != 0) {
-        SPDLOG_INFO("in setupsummarywriter is initialized");
         summary_writer_ = tensorboard_converter_module_("./");
     } else {
-        SPDLOG_INFO("in setupsummarywriter");
         setenv("MARIUS_NO_BINDINGS", "1", true);
-        pybind11::scoped_interpreter guard{};
+        py::initialize_interpreter();
+
         summary_writer_ = tensorboard_converter_module_("./");
 
         pybind11::gil_scoped_release no_gil{};
-        SPDLOG_INFO("in setupsummarywriter end");
     }
 
 }
 
 void BatchTimingReporter::addResult(BatchTiming batch_timing) {
+    Timer timer = Timer(false);
+    timer.start(); 
     lock();
     times_.emplace_back(batch_timing);
     
-    unlock();
-
+    
+    Timer timer_0 = Timer(false);
+    timer.start();
     if (times_.size() > 0) {
         BatchTiming last_batch_timing = times_.back();
-        // tensorboard_converter_module_.attr("batch_timing_appender")
-        //     ("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id, summary_writer_);
-        // tensorboard_converter_module_.attr("batch_timing_appender")
-        //     ("batch_host_queue", batch_timing.batch_host_queue, batch_timing.batch_id, summary_writer_);
-        // tensorboard_converter_module_.attr("batch_timing_appender")
-        //     ("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id, summary_writer_);
-        
+
         if (Py_IsInitialized() != 0) {
-            SPDLOG_INFO("in addresult is initialized");
-            summary_writer_.attr("add_scalar")("wait_for_batch", 3, batch_timing.batch_id);
+            appendBatchTimingResult(last_batch_timing);
         } else {
-            SPDLOG_INFO("in addresult");
             setenv("MARIUS_NO_BINDINGS", "1", true);
-            pybind11::scoped_interpreter guard{};
-            summary_writer_.attr("add_scalar")("wait_for_batch", 3, batch_timing.batch_id);
+            py::initialize_interpreter();
+
+            appendBatchTimingResult(batch_timing);
 
             pybind11::gil_scoped_release no_gil{};
-            SPDLOG_INFO("in addresult end");
         }
-
-
-        //summary_writer_.attr("add_scalar")("wait_for_batch", 3, batch_timing.batch_id);
     }
+    timer_0.stop();
+    timer.stop();
+    SPDLOG_INFO("full timer:{}", timer.getDuration()); // REMOVE
+    SPDLOG_INFO("python timer:{}", timer.getDuration()); // REMOVE
+
+    unlock();
+}
+
+void BatchTimingReporter::appendBatchTimingResult(BatchTiming batch_timing) {
+    summary_writer_.attr("add_scalar")("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("sample_edges", batch_timing.loading.sample_edges, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("sample_negatives", batch_timing.loading.sample_negatives, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("sample_neighbors", batch_timing.loading.sample_neighbors, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("set_uniques_edges", batch_timing.loading.set_uniques_edges, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("set_uniques_neighbors", batch_timing.loading.set_uniques_neighbors, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("set_eval_filter", batch_timing.loading.set_eval_filter, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("load_node_data_cpu", batch_timing.loading.load_node_data, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("batch_host_queue", batch_timing.batch_host_queue, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("h2d_transfer", batch_timing.batch_host_queue, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("batch_device_queue", batch_timing.batch_device_queue, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("load_node_data_gqu", batch_timing.compute.load_node_data, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("perform_map", batch_timing.compute.perform_map, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("forward_encoder", batch_timing.compute.forward_encoder, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("prepare_batch", batch_timing.compute.prepare_batch, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("forward_decoder", batch_timing.compute.forward_decoder, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("loss", batch_timing.compute.loss, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("backward", batch_timing.compute.backward, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("step", batch_timing.compute.step, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("accumulate_gradients", batch_timing.compute.accumulate_gradients, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("gradient_device_queue", batch_timing.gradient_device_queue, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("d2h_transfer", batch_timing.d2h_transfer, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("gradient_host_queue", batch_timing.gradient_host_queue, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("update_embeddings", batch_timing.update_embeddings, batch_timing.batch_id);
+    summary_writer_.attr("add_scalar")("end_to_end", batch_timing.end_to_end, batch_timing.batch_id);
 }
 
 void BatchTimingReporter::report() {

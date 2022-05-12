@@ -9,14 +9,10 @@ from tensorboard.compat.proto import event_pb2
 class tensorboard_logger(object):
 
     def __init__(self, log_directory = "./"):
-        print("hit_0")
         if not Path(log_directory).exists():
             raise RuntimeError("Error: log directory not found")
         else:
             self.log_directory = log_directory
-
-        print("hit")
-        # self.log_directory = log_directory
         
         self.file_writer = None
         self._set_file_writer()
