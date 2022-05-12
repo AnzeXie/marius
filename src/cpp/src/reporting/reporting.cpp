@@ -418,13 +418,11 @@ void BatchTimingReporter::setupSummaryWriter(std::string log_directory) {
 
 void BatchTimingReporter::addResult(BatchTiming batch_timing) {
     Timer timer = Timer(false);
-    timer.start(); 
+    timer.start();
+
     lock();
     times_.emplace_back(batch_timing);
     
-    
-    Timer timer_0 = Timer(false);
-    timer.start();
     if (times_.size() > 0) {
         BatchTiming last_batch_timing = times_.back();
 
@@ -439,40 +437,45 @@ void BatchTimingReporter::addResult(BatchTiming batch_timing) {
             pybind11::gil_scoped_release no_gil{};
         }
     }
-    timer_0.stop();
+    
+    unlock();
     timer.stop();
     SPDLOG_INFO("full timer:{}", timer.getDuration()); // REMOVE
-    SPDLOG_INFO("python timer:{}", timer.getDuration()); // REMOVE
-
-    unlock();
 }
 
 void BatchTimingReporter::appendBatchTimingResult(BatchTiming batch_timing) {
-    summary_writer_.attr("add_scalar")("wait_for_batch", batch_timing.loading.wait_for_batch, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("sample_edges", batch_timing.loading.sample_edges, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("sample_negatives", batch_timing.loading.sample_negatives, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("sample_neighbors", batch_timing.loading.sample_neighbors, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("set_uniques_edges", batch_timing.loading.set_uniques_edges, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("set_uniques_neighbors", batch_timing.loading.set_uniques_neighbors, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("set_eval_filter", batch_timing.loading.set_eval_filter, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("load_node_data_cpu", batch_timing.loading.load_node_data, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("batch_host_queue", batch_timing.batch_host_queue, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("h2d_transfer", batch_timing.batch_host_queue, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("batch_device_queue", batch_timing.batch_device_queue, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("load_node_data_gqu", batch_timing.compute.load_node_data, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("perform_map", batch_timing.compute.perform_map, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("forward_encoder", batch_timing.compute.forward_encoder, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("prepare_batch", batch_timing.compute.prepare_batch, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("forward_decoder", batch_timing.compute.forward_decoder, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("loss", batch_timing.compute.loss, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("backward", batch_timing.compute.backward, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("step", batch_timing.compute.step, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("accumulate_gradients", batch_timing.compute.accumulate_gradients, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("gradient_device_queue", batch_timing.gradient_device_queue, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("d2h_transfer", batch_timing.d2h_transfer, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("gradient_host_queue", batch_timing.gradient_host_queue, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("update_embeddings", batch_timing.update_embeddings, batch_timing.batch_id);
-    summary_writer_.attr("add_scalar")("end_to_end", batch_timing.end_to_end, batch_timing.batch_id);
+    std::vector<int64_t> batch_results {
+        batch_timing.batch_id,
+        batch_timing.loading.wait_for_batch,
+        batch_timing.loading.sample_edges,
+        batch_timing.loading.sample_negatives,
+        batch_timing.loading.sample_neighbors,
+        batch_timing.loading.set_uniques_edges,
+        batch_timing.loading.set_uniques_neighbors,
+        batch_timing.loading.set_eval_filter,
+        batch_timing.loading.load_node_data,
+        batch_timing.batch_host_queue,
+        batch_timing.h2d_transfer,
+        batch_timing.batch_device_queue,
+        batch_timing.compute.load_node_data,
+        batch_timing.compute.perform_map,
+        batch_timing.compute.forward_encoder,
+        batch_timing.compute.prepare_batch,
+        batch_timing.compute.forward_decoder,
+        batch_timing.compute.loss,
+        batch_timing.compute.backward,
+        batch_timing.compute.step,
+        batch_timing.compute.accumulate_gradients,
+        batch_timing.gradient_device_queue,
+        batch_timing.d2h_transfer,
+        batch_timing.gradient_host_queue,
+        batch_timing.update_embeddings,
+        batch_timing.end_to_end
+    };
+
+    py::list batch_results_list = py::cast(batch_results);
+    summary_writer_.attr("add_batch_timing_stats")(batch_results_list, batch_timing.batch_id);
+
 }
 
 void BatchTimingReporter::report() {
